@@ -1,0 +1,173 @@
+name: mpit
+
+services:
+  db:
+    image: mariadb:10.6
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    networks: [frappe]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost --password=${MYSQL_ROOT_PASSWORD}"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:6.2-alpine
+    volumes:
+      - redis-data:/data
+    networks: [frappe]
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frappe
+      args:
+        FRAPPE_IMAGE: ${FRAPPE_IMAGE:-frappe/erpnext}
+        FRAPPE_TAG: ${FRAPPE_IMAGE_TAG}
+    image: master_plan_it-frappe:prod
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+
+      # Un solo Redis per tutto (cache/queue/socketio)
+      REDIS_URL: redis:6379
+      FRAPPE_REDIS_CACHE: redis://redis:6379
+      FRAPPE_REDIS_QUEUE: redis://redis:6379
+      SITES_PATH: .
+      FRAPPE_BENCH_ROOT: /home/frappe/frappe-bench
+
+      # opzionale
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+      - ../master-plan-it:/home/frappe/frappe-bench/apps/master_plan_it:ro
+    networks: [frappe]
+    restart: unless-stopped
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        trap 'kill 0' SIGTERM SIGINT
+
+        wait_for() {
+          local host="$1" port="$2" timeout="$${3:-120}"
+          echo "Waiting for $${host}:$${port} (timeout $${timeout}s)..."
+          python - "$${host}" "$${port}" "$${timeout}" <<'PY'
+        import socket, sys, time
+        host, port, timeout = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+        start = time.time()
+        while True:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(2)
+                try:
+                    sock.connect((host, port))
+                    sys.exit(0)
+                except OSError:
+                    pass
+            if time.time() - start > timeout:
+                sys.exit(1)
+            time.sleep(1)
+        PY
+        }
+
+        DB_HOST="$${DB_HOST:-db}"
+        DB_PORT="$${DB_PORT:-3306}"
+        REDIS_URL="$${REDIS_URL:-redis:6379}"
+
+        wait_for "$${DB_HOST}" "$${DB_PORT}" 120
+        wait_for "$${REDIS_URL%:*}" "$${REDIS_URL#*:}" 120
+
+        bench_root="/home/frappe/frappe-bench"
+        sites_dir="$${bench_root}/sites"
+
+        cd "$${bench_root}"
+        export PATH="$${bench_root}/env/bin:$PATH"
+
+        touch "$${sites_dir}/common_site_config.json"
+        bench set-config -g db_host "$${DB_HOST}"
+        bench set-config -gp db_port "$${DB_PORT}"
+        bench set-config -g redis_cache "redis://$${REDIS_URL}"
+        bench set-config -g redis_queue "redis://$${REDIS_URL}"
+        bench set-config -g redis_socketio "redis://$${REDIS_URL}"
+        bench set-config -gp socketio_port 9000
+        bench config dns_multitenant on || true
+        : > "$${sites_dir}/currentsite.txt" || true
+
+        ls -1 "$${bench_root}/apps" > "$${sites_dir}/apps.txt"
+
+        cd "$${sites_dir}"
+
+        if [ -f "$${bench_root}/config/gunicorn.conf.py" ]; then
+          "$${bench_root}/env/bin/gunicorn" -c "$${bench_root}/config/gunicorn.conf.py" --chdir="$${sites_dir}" -b 0.0.0.0:8000 frappe.app:application &
+        else
+          "$${bench_root}/env/bin/gunicorn" --chdir="$${sites_dir}" -b 0.0.0.0:8000 -w "$${GUNICORN_WORKERS}" -t 120 frappe.app:application &
+        fi
+
+        node "$${bench_root}/apps/frappe/socketio.js" &
+        (cd "$${sites_dir}" && bench worker --queue short,default) &
+        (cd "$${sites_dir}" && bench worker --queue long,default,short) &
+        (cd "$${sites_dir}" && bench schedule) &
+
+        wait -n
+
+  frontend:
+    image: master_plan_it-frappe:prod
+    container_name: mpit-frontend
+    depends_on:
+      - backend
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: backend:9000
+
+      # DNS-based multi-tenancy: usa l'Host header
+      FRAPPE_SITE_NAME_HEADER: ${FRAPPE_SITE_NAME_HEADER:-$$host}
+
+      PROXY_READ_TIMEOUT: ${PROXY_READ_TIMEOUT:-120}
+      CLIENT_MAX_BODY_SIZE: ${CLIENT_MAX_BODY_SIZE:-50m}
+      UPSTREAM_REAL_IP_ADDRESS: ${UPSTREAM_REAL_IP_ADDRESS:-127.0.0.1}
+      UPSTREAM_REAL_IP_HEADER: ${UPSTREAM_REAL_IP_HEADER:-X-Forwarded-For}
+      UPSTREAM_REAL_IP_RECURSIVE: ${UPSTREAM_REAL_IP_RECURSIVE:-off}
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+      - ../master-plan-it:/home/frappe/frappe-bench/apps/master_plan_it:ro
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-8080}:8080"
+    networks:
+      frappe: {}
+      proxy:
+        aliases:
+          - mpit-frontend
+    restart: unless-stopped
+    command: ["nginx-entrypoint.sh"]
+
+volumes:
+  db-data:
+  redis-data:
+  sites:
+  logs:
+
+networks:
+  frappe:
+    driver: bridge
+  proxy:
+    external: true

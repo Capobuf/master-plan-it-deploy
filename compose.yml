@@ -2,7 +2,7 @@ name: master_plan_it
 
 services:
   db:
-    image: mariadb:11
+    image: mariadb:10.8
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -77,7 +77,7 @@ services:
   frontend:
     image: master_plan_it-frappe:local
     command: ["nginx-entrypoint.sh"]
-    container_name: frappe-web
+    container_name: mpit-frontend
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
       BACKEND: frappe:8000
