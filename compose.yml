@@ -3,6 +3,7 @@ name: master_plan_it
 services:
   db:
     image: mariadb:10.8
+    container_name: mpit-db
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -21,6 +22,7 @@ services:
 
   redis:
     image: redis:6.2-alpine
+    container_name: mpit-redis
     volumes:
       - ./data/redis:/data
     healthcheck:
@@ -39,6 +41,7 @@ services:
         FRAPPE_IMAGE: ${FRAPPE_IMAGE}
         FRAPPE_TAG: ${FRAPPE_TAG}
     image: master_plan_it-frappe:local
+    container_name: mpit-backend
     depends_on:
       db:
         condition: service_healthy
