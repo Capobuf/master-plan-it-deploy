@@ -1,0 +1,233 @@
+# Master Plan IT - Production Docker Compose
+# Designed for 2-3 sites with Nginx Proxy Manager integration
+# Network: proxy (external) required for NPM connectivity
+
+name: mpit
+
+services:
+  db:
+    image: mariadb:10.6
+    container_name: mpit-db
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+      # Performance tuning for 2-3 sites
+      - --max-connections=100
+      - --innodb-buffer-pool-size=512M
+      - --innodb-log-file-size=128M
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - frappe
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost --password=$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+    labels:
+      - "com.master-plan-it.service=database"
+      - "com.master-plan-it.environment=production"
+
+  redis:
+    image: redis:6.2-alpine
+    container_name: mpit-redis
+    command:
+      - redis-server
+      - --appendonly yes
+      - --maxmemory 256mb
+      - --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - frappe
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    labels:
+      - "com.master-plan-it.service=cache"
+      - "com.master-plan-it.environment=production"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frappe
+      target: production
+      args:
+        FRAPPE_IMAGE: ${FRAPPE_IMAGE:-frappe/erpnext}
+        FRAPPE_TAG: ${FRAPPE_TAG:-v15.93.1}
+    image: master_plan_it-frappe:${IMAGE_TAG:-prod}
+    container_name: mpit-backend
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+
+      # Redis (single instance for all services)
+      REDIS_URL: redis:6379
+      FRAPPE_REDIS_CACHE: redis://redis:6379
+      FRAPPE_REDIS_QUEUE: redis://redis:6379
+
+      # Frappe config
+      FRAPPE_BENCH_ROOT: /home/frappe/frappe-bench
+      SITES_PATH: .
+
+      # Site setup
+      SITE_NAME: ${SITE_NAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      INSTALL_APPS: ${INSTALL_APPS:-master_plan_it}
+
+      # Runtime config
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      RUN_MIGRATE_ON_START: ${RUN_MIGRATE_ON_START:-0}
+
+      # Production flags
+      PRODUCTION: "1"
+      DEV_SERVER: "0"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    networks:
+      - frappe
+    restart: unless-stopped
+    entrypoint: ["/home/frappe/frappe-bench/config/prod-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/method/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+    labels:
+      - "com.master-plan-it.service=backend"
+      - "com.master-plan-it.environment=production"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    image: master_plan_it-frappe:${IMAGE_TAG:-prod}
+    container_name: mpit-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      # Upstream backends
+      BACKEND: backend:8000
+      SOCKETIO: backend:9000
+
+      # Multi-tenancy (DNS-based via NPM Host header)
+      FRAPPE_SITE_NAME_HEADER: ${FRAPPE_SITE_NAME_HEADER:-$$host}
+
+      # Nginx tuning
+      PROXY_READ_TIMEOUT: ${PROXY_READ_TIMEOUT:-120}
+      CLIENT_MAX_BODY_SIZE: ${CLIENT_MAX_BODY_SIZE:-50m}
+
+      # Real IP from NPM
+      UPSTREAM_REAL_IP_ADDRESS: ${UPSTREAM_REAL_IP_ADDRESS:-172.0.0.0/8}
+      UPSTREAM_REAL_IP_HEADER: ${UPSTREAM_REAL_IP_HEADER:-X-Forwarded-For}
+      UPSTREAM_REAL_IP_RECURSIVE: ${UPSTREAM_REAL_IP_RECURSIVE:-on}
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites:ro
+      - logs:/home/frappe/frappe-bench/logs
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-9797}:8080"
+    networks:
+      frappe: {}
+      proxy:
+        aliases:
+          - mpit-frontend
+    restart: unless-stopped
+    command: ["nginx-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/method/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    labels:
+      - "com.master-plan-it.service=frontend"
+      - "com.master-plan-it.environment=production"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  db-data:
+    name: mpit-db-data
+    labels:
+      - "com.master-plan-it.volume=database"
+      - "com.master-plan-it.backup=critical"
+  redis-data:
+    name: mpit-redis-data
+    labels:
+      - "com.master-plan-it.volume=cache"
+      - "com.master-plan-it.backup=optional"
+  sites:
+    name: mpit-sites
+    labels:
+      - "com.master-plan-it.volume=sites"
+      - "com.master-plan-it.backup=critical"
+  logs:
+    name: mpit-logs
+    labels:
+      - "com.master-plan-it.volume=logs"
+      - "com.master-plan-it.backup=optional"
+
+networks:
+  frappe:
+    name: mpit-internal
+    driver: bridge
+    labels:
+      - "com.master-plan-it.network=internal"
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}

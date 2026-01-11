@@ -2,7 +2,7 @@ name: master_plan_it
 
 services:
   db:
-    image: mariadb:10.8
+    image: mariadb:10.6
     container_name: mpit-db
     command:
       - --character-set-server=utf8mb4
