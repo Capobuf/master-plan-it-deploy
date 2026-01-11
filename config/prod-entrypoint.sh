@@ -18,5 +18,18 @@ bench set-config -gp socketio_port "${SOCKETIO_PORT:-9000}"
 # Generate apps.txt from installed apps
 ls -1 apps > sites/apps.txt 2>/dev/null || true
 
+# Install custom apps as Python packages (editable mode)
+# This ensures modules are importable after bench get-app
+for app_dir in apps/*/; do
+  app_name=$(basename "$app_dir")
+  # Skip frappe and erpnext (already installed in base image)
+  if [ "$app_name" != "frappe" ] && [ "$app_name" != "erpnext" ]; then
+    if [ -f "$app_dir/setup.py" ] || [ -f "$app_dir/pyproject.toml" ]; then
+      echo "Installing $app_name as editable package..."
+      pip install -e "$app_dir" --quiet 2>/dev/null || true
+    fi
+  fi
+done
+
 # Start all services
 exec honcho start -f Procfile
