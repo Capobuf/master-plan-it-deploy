@@ -74,12 +74,11 @@ services:
 
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.frappe
-      target: production
+      context: ..
+      dockerfile: master-plan-it-deploy/Dockerfile.frappe
       args:
         FRAPPE_IMAGE: ${FRAPPE_IMAGE:-frappe/erpnext}
-        FRAPPE_TAG: ${FRAPPE_TAG:-v15.93.1}
+        FRAPPE_TAG: ${FRAPPE_TAG:-v16.10.1}
     image: master_plan_it-frappe:${IMAGE_TAG:-prod}
     container_name: mpit-backend
     depends_on:

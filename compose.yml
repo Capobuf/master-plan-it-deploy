@@ -35,8 +35,8 @@ services:
   # Un solo container che fa: config bench + new-site (se manca) + avvia web/socketio/schedule/worker via Procfile
   frappe:
     build:
-      context: .
-      dockerfile: Dockerfile.frappe
+      context: ..
+      dockerfile: master-plan-it-deploy/Dockerfile.frappe
       args:
         FRAPPE_IMAGE: ${FRAPPE_IMAGE}
         FRAPPE_TAG: ${FRAPPE_TAG}
@@ -71,7 +71,7 @@ services:
 
       # IMPORTANTISSIMO: NON montare tutta ./data/apps vuota (ti sovrascrive frappe/erpnext).
       # In dev, monta SOLO la tua app:
-      - ../master-plan-it:/home/frappe/frappe-bench/apps/master_plan_it
+      - ../master_plan_it:/home/frappe/frappe-bench/apps/master_plan_it
       - ./config/mpit-entrypoint.sh:/home/frappe/frappe-bench/config/mpit-entrypoint.sh:ro
       - ./config/mpit.Procfile:/home/frappe/frappe-bench/config/mpit.Procfile:ro
     restart: unless-stopped

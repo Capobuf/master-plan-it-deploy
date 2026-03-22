@@ -36,7 +36,12 @@ services:
       - prod.env 
 
   backend:
-    image: frappe/erpnext:${FRAPPE_TAG:-v15}
+    build:
+      context: ..
+      dockerfile: master-plan-it-deploy/Dockerfile.frappe
+      args:
+        FRAPPE_TAG: ${FRAPPE_TAG:-v16.10.1}
+    image: mpit-frappe:${FRAPPE_TAG:-v16.10.1}
     depends_on:
       db:
         condition: service_healthy
@@ -61,7 +66,7 @@ services:
       - prod.env 
 
   frontend:
-    image: frappe/erpnext:${FRAPPE_TAG:-v15}
+    image: mpit-frappe:${FRAPPE_TAG:-v16.10.1}
     depends_on:
       - backend
     environment:
