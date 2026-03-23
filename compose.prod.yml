@@ -1,5 +1,8 @@
 name: mpit
 
+# Production compose – uses a pre-built image; no build, no app source mounts.
+# Upgrade path: pull new image → up --force-recreate → bench migrate → verify.
+
 services:
   db:
     image: mariadb:10.6
@@ -8,18 +11,19 @@ services:
       - --collation-server=utf8mb4_unicode_ci
       - --skip-character-set-client-handshake
       - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     volumes:
       - db-data:/var/lib/mysql
     networks:
       - frappe
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -p${DB_ROOT_PASSWORD} --silent || exit 1"]
       interval: 10s
-      retries: 5
+      timeout: 5s
+      retries: 10
       start_period: 30s
-    env_file:
-      - prod.env 
 
   redis:
     image: redis:6.2-alpine
@@ -31,17 +35,11 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      retries: 5
-    env_file:
-      - prod.env 
+      timeout: 3s
+      retries: 10
 
   backend:
-    build:
-      context: ..
-      dockerfile: master-plan-it-deploy/Dockerfile.frappe
-      args:
-        FRAPPE_TAG: ${FRAPPE_TAG:-v16.10.1}
-    image: mpit-frappe:${FRAPPE_TAG:-v16.10.1}
+    image: ${CUSTOM_IMAGE}:${CUSTOM_TAG}
     depends_on:
       db:
         condition: service_healthy
@@ -50,23 +48,21 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: "3306"
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       REDIS_CACHE: redis://redis:6379
       REDIS_QUEUE: redis://redis:6379
       SOCKETIO_PORT: "9000"
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
-      - ./config/prod-entrypoint.sh:/entrypoint.sh:ro
-      - ./config/prod.Procfile:/home/frappe/frappe-bench/Procfile:ro
     networks:
       - frappe
     restart: unless-stopped
+    # /entrypoint.sh is baked into the image by Dockerfile.frappe
     entrypoint: ["/entrypoint.sh"]
-    env_file:
-      - prod.env 
 
   frontend:
-    image: mpit-frappe:${FRAPPE_TAG:-v16.10.1}
+    image: ${CUSTOM_IMAGE}:${CUSTOM_TAG}
     depends_on:
       - backend
     environment:
@@ -86,8 +82,6 @@ services:
           - mpit-frontend
     restart: unless-stopped
     command: ["nginx-entrypoint.sh"]
-    env_file:
-      - prod.env 
 
 volumes:
   db-data:
