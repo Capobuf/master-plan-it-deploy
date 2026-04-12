@@ -1,5 +1,5 @@
 ARG FRAPPE_IMAGE=frappe/erpnext
-ARG FRAPPE_TAG=v16.10.1
+ARG FRAPPE_TAG=v16
 FROM ${FRAPPE_IMAGE}:${FRAPPE_TAG}
 
 # Build pipeline only – not used by the production server directly.
