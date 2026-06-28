@@ -1,27 +1,32 @@
 # master-plan-it-deploy
 
-Development-only Docker Compose setup for the Master Plan IT Frappe Framework v16 app.
+Docker Compose dev stack for `master_plan_it` on Frappe Framework v16.
 
-There is no production compose file in this repository. The stack uses the official
-`frappe/bench:v5.31.0` development image, initializes a Frappe Framework v16 bench, bind-mounts
-the app repository for live development, and runs Frappe with `bench start`.
+## Stack
 
-## Repository Layout
+- `db`: `mariadb:11.8`
+- `redis`: `redis:7-alpine`
+- `setup`: one-shot bench/site setup
+- `frappe`: `frappe/bench:v5.31.0`, runs `bench start`
+- `cypress`: test profile only
 
-Keep these repositories as siblings:
+ERPNext is not installed. The app has no ERPNext runtime dependency.
+
+## Repositories
+
+Expected layout:
 
 ```text
 master-plan-it-deploy/
-Master-Plan-IT/
+master_plan_it/
 ```
 
-If your local app repository has another directory name, set `APP_PATH` in `.env`.
+Set `APP_PATH` in `.env` if the app repo has a different path.
 
-## First Run
+## Start
 
 ```bash
 cp .env.example .env
-# Review variables in .env.
 docker compose up -d
 ```
 
@@ -31,56 +36,52 @@ Open:
 http://mpit.localhost:9797
 ```
 
-If your OS or browser does not resolve `*.localhost`, add a hosts entry or change
-`SITE_NAME` to a resolvable local name.
-
 Login:
 
-- User: `Administrator`
-- Password: value of `FRAPPE_PASSWORD`
-
-## Services
-
-- `db`: MariaDB.
-- `redis`: single Redis instance for cache, queue, and socket.io.
-- `setup`: one-shot bench initialization, site bootstrap and migration container.
-- `frappe`: Frappe development server using `bench start`.
-- `cypress`: profile-only UI test runner.
-
-ERPNext is not installed because the app has no ERPNext runtime dependency. No demo data is
-created. Cypress tests create and delete their own test data.
-
-## Live Development
-
-`APP_PATH` is mounted into the Frappe bench at:
-
 ```text
-/home/frappe/frappe-bench/apps/master_plan_it
+User: Administrator
+Password: FRAPPE_PASSWORD from .env
 ```
 
-Python and app file changes are visible inside the container. Schema and DocType changes
-still require migration, and cache-sensitive changes may require clearing cache.
-
-## Useful Commands
+## Verify
 
 ```bash
-docker compose logs -f frappe
-docker compose exec frappe bash
-docker compose exec frappe bench --site "$SITE_NAME" migrate
-docker compose exec frappe bench --site "$SITE_NAME" clear-cache
+curl -H 'Host: mpit.localhost' http://127.0.0.1:9797/api/method/ping
 docker compose exec frappe bench --site "$SITE_NAME" execute master_plan_it.devtools.verify.run
 docker compose --profile test run --rm cypress
 ```
 
-## Destructive Reset
+Expected:
 
-This deletes all local development data and Cypress artifacts. It is not part of the
-normal workflow.
+```text
+{"message":"pong"}
+{"ok":["all_required_entities_present"], ...}
+Cypress: 12 passing
+```
+
+## Commands
 
 ```bash
-docker compose down
+docker compose ps -a
+docker compose logs -f frappe
+docker compose exec frappe bash
+docker compose exec frappe bench --site "$SITE_NAME" migrate
+docker compose exec frappe bench --site "$SITE_NAME" clear-cache
+```
+
+## Reset
+
+Deletes database, site files, bench, logs, Redis data, and Cypress artifacts:
+
+```bash
+docker compose down -v --remove-orphans
 rm -rf ./data ./cypress-artifacts
 docker compose up -d
 ```
 
-More details are in [docs/docker-dev.md](docs/docker-dev.md).
+## Notes
+
+- `setup` runs `bench init --skip-redis-config-generation --frappe-branch version-16`.
+- Redis is external; local Redis lines are removed from the generated Procfile.
+- `web`, `socketio`, `watch`, `schedule`, and `worker` stay in the Procfile.
+- Cypress artifacts are written to `./cypress-artifacts`.

@@ -84,6 +84,8 @@ elif [ ! -d apps/master_plan_it/master_plan_it ]; then
   exit 1
 fi
 
+/home/frappe/frappe-bench/env/bin/pip install -e "$APP_SOURCE"
+
 printf "frappe\nmaster_plan_it\n" >sites/apps.txt
 
 {
@@ -100,8 +102,6 @@ bench set-config -gp socketio_port 9000
 
 printf "y\n" | bench setup procfile
 sed -i '/^redis_/d' Procfile
-
-/home/frappe/frappe-bench/env/bin/pip install -e "$APP_SOURCE"
 
 mkdir -p assets
 if [ ! -f sites/assets/assets.json ]; then

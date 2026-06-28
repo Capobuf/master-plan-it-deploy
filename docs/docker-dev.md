@@ -39,7 +39,7 @@ Login with user `Administrator` and the password from `FRAPPE_PASSWORD`.
 
 The runtime stack is intentionally small:
 
-- `db`: MariaDB data store.
+- `db`: MariaDB 11.8 data store.
 - `redis`: one Redis instance shared by cache, queue, and socket.io.
 - `frappe`: Frappe development process runner using `bench start`.
 
@@ -88,7 +88,7 @@ The following command deletes the local development database, site files, logs, 
 and Cypress artifacts. Use it only when you intentionally want a fresh local environment:
 
 ```bash
-docker compose down
+docker compose down -v --remove-orphans
 rm -rf ./data ./cypress-artifacts
 docker compose up -d
 ```
