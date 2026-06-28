@@ -1,84 +1,86 @@
 # master-plan-it-deploy
 
-Docker Compose deployment for [Master Plan IT](https://github.com/Capobuf/master-plan-it) — a Frappe v16 app.
+Development-only Docker Compose setup for the Master Plan IT Frappe Framework v16 app.
 
-## Files
+There is no production compose file in this repository. The stack uses the official
+`frappe/bench:v5.31.0` development image, initializes a Frappe Framework v16 bench, bind-mounts
+the app repository for live development, and runs Frappe with `bench start`.
 
-| File | Purpose |
-|------|---------|
-| `compose.prod.yml` | Production — uses pre-built image; no source mounts |
-| `compose.dev.yml` | Development — bind-mounts app repo for live editing |
-| `Dockerfile.frappe` | Builds custom image with the app baked in |
-| `apps.json` | App list for build-time installation |
-| `prod.env.example` | Production env template (copy → `prod.env`, never commit) |
-| `config/prod-entrypoint.sh` | Production container entrypoint |
-| `config/prod.Procfile` | Production process list |
+## Repository Layout
 
-## Production deploy
+Keep these repositories as siblings:
 
-**Prerequisites:** pre-built image pushed to registry (`CUSTOM_IMAGE:CUSTOM_TAG`).
-
-```bash
-# 1. Clone this repo on the server
-git clone https://github.com/Capobuf/master-plan-it-deploy.git
-cd master-plan-it-deploy
-
-# 2. Configure environment
-cp prod.env.example prod.env
-# Edit prod.env: set CUSTOM_IMAGE, CUSTOM_TAG, DB_ROOT_PASSWORD
-
-# 3. Start (first run creates volumes)
-docker compose -f compose.prod.yml --env-file prod.env up -d
-
-# 4. Create a site (first run only)
-docker compose -f compose.prod.yml exec backend \
-  bench new-site <site.domain> \
-  --no-mariadb-socket \
-  --mariadb-root-password "$DB_ROOT_PASSWORD" \
-  --admin-password "<admin-password>"
-docker compose -f compose.prod.yml exec backend \
-  bench --site <site.domain> install-app master_plan_it
-docker compose -f compose.prod.yml exec backend \
-  bench --site <site.domain> migrate
+```text
+master-plan-it-deploy/
+Master-Plan-IT/
 ```
 
-## Upgrade
+If your local app repository has another directory name, set `APP_PATH` in `.env`.
+
+## First Run
 
 ```bash
-# Pull new image, recreate containers, migrate
-docker compose -f compose.prod.yml --env-file prod.env pull
-docker compose -f compose.prod.yml --env-file prod.env up -d --force-recreate
-docker compose -f compose.prod.yml exec backend bench --site <site.domain> migrate
+cp .env.example .env
+# Review variables in .env.
+docker compose up -d
 ```
 
-## Build custom image
+Open:
+
+```text
+http://mpit.localhost:9797
+```
+
+If your OS or browser does not resolve `*.localhost`, add a hosts entry or change
+`SITE_NAME` to a resolvable local name.
+
+Login:
+
+- User: `Administrator`
+- Password: value of `FRAPPE_PASSWORD`
+
+## Services
+
+- `db`: MariaDB.
+- `redis`: single Redis instance for cache, queue, and socket.io.
+- `setup`: one-shot bench initialization, site bootstrap and migration container.
+- `frappe`: Frappe development server using `bench start`.
+- `cypress`: profile-only UI test runner.
+
+ERPNext is not installed because the app has no ERPNext runtime dependency. No demo data is
+created. Cypress tests create and delete their own test data.
+
+## Live Development
+
+`APP_PATH` is mounted into the Frappe bench at:
+
+```text
+/home/frappe/frappe-bench/apps/master_plan_it
+```
+
+Python and app file changes are visible inside the container. Schema and DocType changes
+still require migration, and cache-sensitive changes may require clearing cache.
+
+## Useful Commands
 
 ```bash
-# Build from app repo root (apps.json is encoded at build time)
-APPS_JSON_BASE64=$(base64 -w 0 apps.json)
-docker build \
-  --build-arg APPS_JSON_BASE64="$APPS_JSON_BASE64" \
-  -f Dockerfile.frappe \
-  -t ghcr.io/yourorg/mpit-frappe:<tag> .
-docker push ghcr.io/yourorg/mpit-frappe:<tag>
+docker compose logs -f frappe
+docker compose exec frappe bash
+docker compose exec frappe bench --site "$SITE_NAME" migrate
+docker compose exec frappe bench --site "$SITE_NAME" clear-cache
+docker compose exec frappe bench --site "$SITE_NAME" execute master_plan_it.devtools.verify.run
+docker compose --profile test run --rm cypress
 ```
 
-## Development
+## Destructive Reset
+
+This deletes all local development data and Cypress artifacts. It is not part of the
+normal workflow.
 
 ```bash
-# App repo must be a sibling directory: ../master_plan_it/
-docker compose -f compose.dev.yml up -d
-
-# Create dev site
-docker compose -f compose.dev.yml exec frappe \
-  bench new-site <site.local> \
-  --no-mariadb-socket \
-  --mariadb-root-password "${DB_ROOT_PASSWORD}" \
-  --admin-password "admin"
-
-# Full reset
-docker compose -f compose.dev.yml down
-rm -rf data/db data/sites
-mkdir -p data/sites && chown -R 1000:1000 data/sites
-docker compose -f compose.dev.yml up -d
+docker compose down
+rm -rf ./data ./cypress-artifacts
+docker compose up -d
 ```
+
+More details are in [docs/docker-dev.md](docs/docker-dev.md).

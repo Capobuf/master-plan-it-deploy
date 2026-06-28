@@ -1,0 +1,105 @@
+name: master_plan_it
+
+# Minimal Frappe Framework v16 development stack for Master Plan IT.
+# This compose file is development-only: setup creates a bench, runtime uses bench start.
+
+services:
+  db:
+    image: mariadb:lts
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - ./data/db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  setup:
+    image: ${FRAPPE_IMAGE}:${FRAPPE_TAG}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    user: "0:0"
+    environment:
+      SITE_NAME: ${SITE_NAME}
+      FRAPPE_PASSWORD: ${FRAPPE_PASSWORD}
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      TZ: ${TZ:-Europe/Rome}
+    volumes:
+      - ./data/bench:/home/frappe/frappe-bench
+      - ./data/sites:/home/frappe/frappe-bench/sites
+      - ./data/logs:/home/frappe/frappe-bench/logs
+      - ${APP_PATH}:/workspace/master_plan_it
+      - ./scripts/setup-site.sh:/workspace/scripts/setup-site.sh:ro
+    working_dir: /home/frappe
+    command:
+      - bash
+      - -lc
+      - |
+        install -d -o frappe -g frappe /home/frappe/frappe-bench
+        chown -R frappe:frappe /home/frappe/frappe-bench
+        exec su -s /bin/bash frappe -c /workspace/scripts/setup-site.sh
+    restart: "no"
+
+  frappe:
+    image: ${FRAPPE_IMAGE}:${FRAPPE_TAG}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      SITE_NAME: ${SITE_NAME}
+      FRAPPE_PASSWORD: ${FRAPPE_PASSWORD}
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - ./data/bench:/home/frappe/frappe-bench
+      - ./data/sites:/home/frappe/frappe-bench/sites
+      - ./data/logs:/home/frappe/frappe-bench/logs
+      - ${APP_PATH}:/workspace/master_plan_it
+    working_dir: /home/frappe/frappe-bench
+    command: ["bench", "start"]
+    ports:
+      - "${HTTP_PORT}:8000"
+    restart: unless-stopped
+
+  cypress:
+    image: cypress/included:13.17.0
+    profiles: ["test"]
+    depends_on:
+      frappe:
+        condition: service_started
+    environment:
+      CYPRESS_BASE_URL: ${CYPRESS_BASE_URL}
+      CYPRESS_FRAPPE_USER: ${CYPRESS_FRAPPE_USER}
+      FRAPPE_PASSWORD: ${FRAPPE_PASSWORD}
+      CYPRESS_ARTIFACTS_PATH: /artifacts
+      TZ: ${TZ}
+    volumes:
+      - ${APP_PATH}/cypress:/e2e:ro
+      - ${CYPRESS_ARTIFACTS_PATH}:/artifacts
+    working_dir: /e2e
