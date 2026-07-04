@@ -15,7 +15,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       TZ: ${TZ}
     volumes:
-      - ./data/db:/var/lib/mysql
+      - ${DATA_ROOT:-./data}/db:/var/lib/mysql
     healthcheck:
       test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -p$${MYSQL_ROOT_PASSWORD} --silent"]
       interval: 5s
@@ -23,19 +23,23 @@ services:
       retries: 30
       start_period: 20s
     restart: unless-stopped
+    networks:
+      - default
 
   redis:
     image: redis:7-alpine
     environment:
       TZ: ${TZ}
     volumes:
-      - ./data/redis:/data
+      - ${DATA_ROOT:-./data}/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 30
     restart: unless-stopped
+    networks:
+      - default
 
   setup:
     image: ${FRAPPE_IMAGE}:${FRAPPE_TAG}
@@ -51,9 +55,9 @@ services:
       DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       TZ: ${TZ:-Europe/Rome}
     volumes:
-      - ./data/bench:/home/frappe/frappe-bench
-      - ./data/sites:/home/frappe/frappe-bench/sites
-      - ./data/logs:/home/frappe/frappe-bench/logs
+      - ${DATA_ROOT:-./data}/bench:/home/frappe/frappe-bench
+      - ${DATA_ROOT:-./data}/sites:/home/frappe/frappe-bench/sites
+      - ${DATA_ROOT:-./data}/logs:/home/frappe/frappe-bench/logs
       - ${APP_PATH}:/workspace/master_plan_it
       - ./scripts/setup-site.sh:/workspace/scripts/setup-site.sh:ro
     working_dir: /home/frappe
@@ -65,27 +69,33 @@ services:
         chown -R frappe:frappe /home/frappe/frappe-bench
         exec su -s /bin/bash frappe -c /workspace/scripts/setup-site.sh
     restart: "no"
-
+    networks:
+      - default
+    
   frappe:
     image: ${FRAPPE_IMAGE}:${FRAPPE_TAG}
     depends_on:
       setup:
         condition: service_completed_successfully
+    container_name: frappe
     environment:
       SITE_NAME: ${SITE_NAME}
       FRAPPE_PASSWORD: ${FRAPPE_PASSWORD}
       DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       TZ: ${TZ}
     volumes:
-      - ./data/bench:/home/frappe/frappe-bench
-      - ./data/sites:/home/frappe/frappe-bench/sites
-      - ./data/logs:/home/frappe/frappe-bench/logs
+      - ${DATA_ROOT:-./data}/bench:/home/frappe/frappe-bench
+      - ${DATA_ROOT:-./data}/sites:/home/frappe/frappe-bench/sites
+      - ${DATA_ROOT:-./data}/logs:/home/frappe/frappe-bench/logs
       - ${APP_PATH}:/workspace/master_plan_it
     working_dir: /home/frappe/frappe-bench
     command: ["bench", "start"]
     ports:
       - "${HTTP_PORT}:8000"
     restart: unless-stopped
+    networks:
+      - default
+      - proxy
 
   cypress:
     image: cypress/included:13.17.0
@@ -103,3 +113,9 @@ services:
       - ${APP_PATH}/cypress:/e2e:ro
       - ${CYPRESS_ARTIFACTS_PATH}:/artifacts
     working_dir: /e2e
+    networks:
+      - default
+
+networks:
+  proxy:
+    external: true
