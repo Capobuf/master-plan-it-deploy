@@ -84,12 +84,12 @@ docker compose --profile test run --rm cypress
 
 ## Reset
 
-The following command deletes the local development database, site files, logs, Redis data,
-and Cypress artifacts. Use it only when you intentionally want a fresh local environment:
+The following command deletes the local development database, site files, logs, and Redis data.
+Use it only when you intentionally want a fresh local environment:
 
 ```bash
 docker compose down -v --remove-orphans
-rm -rf ./data ./cypress-artifacts
+rm -rf ./data
 docker compose up -d
 ```
 

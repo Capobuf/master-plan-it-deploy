@@ -125,9 +125,17 @@ else
 fi
 
 bench --site "$SITE_NAME" set-config developer_mode 1
+if [ "${ALLOW_TESTS:-1}" = "1" ] || [ "${ALLOW_TESTS:-1}" = "true" ] || [ "${ALLOW_TESTS:-1}" = "True" ]; then
+  bench --site "$SITE_NAME" set-config allow_tests true
+else
+  bench --site "$SITE_NAME" set-config allow_tests false
+fi
 bench --site "$SITE_NAME" migrate
 if [ "$(bench --site "$SITE_NAME" execute frappe.is_setup_complete)" != "True" ]; then
   bench --site "$SITE_NAME" execute frappe.utils.install.complete_setup_wizard
+fi
+if [ -n "${CYPRESS_FRAPPE_USER:-}" ] && [ -n "${CYPRESS_FRAPPE_PASSWORD:-}" ]; then
+  bench --site "$SITE_NAME" execute master_plan_it.devtools.cypress_user.ensure
 fi
 bench --site "$SITE_NAME" clear-cache
 

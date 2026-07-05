@@ -53,6 +53,9 @@ services:
       SITE_NAME: ${SITE_NAME}
       FRAPPE_PASSWORD: ${FRAPPE_PASSWORD}
       DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      ALLOW_TESTS: ${ALLOW_TESTS:-1}
+      CYPRESS_FRAPPE_USER: ${CYPRESS_FRAPPE_USER:-cypress@example.local}
+      CYPRESS_FRAPPE_PASSWORD: ${CYPRESS_FRAPPE_PASSWORD:-mpit_cypress_test}
       TZ: ${TZ:-Europe/Rome}
     volumes:
       - ${DATA_ROOT:-./data}/bench:/home/frappe/frappe-bench
@@ -105,14 +108,13 @@ services:
         condition: service_started
     environment:
       CYPRESS_BASE_URL: ${CYPRESS_BASE_URL}
-      CYPRESS_FRAPPE_USER: ${CYPRESS_FRAPPE_USER}
-      FRAPPE_PASSWORD: ${FRAPPE_PASSWORD}
-      CYPRESS_ARTIFACTS_PATH: /artifacts
+      CYPRESS_FRAPPE_USER: ${CYPRESS_FRAPPE_USER:-cypress@example.local}
+      CYPRESS_FRAPPE_PASSWORD: ${CYPRESS_FRAPPE_PASSWORD:-mpit_cypress_test}
       TZ: ${TZ}
     volumes:
       - ${APP_PATH}/cypress:/e2e:ro
-      - ${CYPRESS_ARTIFACTS_PATH}:/artifacts
     working_dir: /e2e
+    command: ["--browser", "chrome", "--headless"]
     networks:
       - default
 

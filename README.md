@@ -48,6 +48,7 @@ Password: FRAPPE_PASSWORD from .env
 ```bash
 curl -H 'Host: mpit.localhost' http://127.0.0.1:9797/api/method/ping
 docker compose exec frappe bench --site "$SITE_NAME" execute master_plan_it.devtools.verify.run
+docker compose exec frappe bench --site "$SITE_NAME" run-tests --app master_plan_it
 docker compose --profile test run --rm cypress
 ```
 
@@ -56,7 +57,8 @@ Expected:
 ```text
 {"message":"pong"}
 {"ok":["all_required_entities_present"], ...}
-Cypress: 12 passing
+Frappe tests: OK
+Cypress: 13 passing
 ```
 
 ## Commands
@@ -71,17 +73,19 @@ docker compose exec frappe bench --site "$SITE_NAME" clear-cache
 
 ## Reset
 
-Deletes database, site files, bench, logs, Redis data, and Cypress artifacts:
+Deletes database, site files, bench, logs, and Redis data:
 
 ```bash
 docker compose down -v --remove-orphans
-rm -rf ./data ./cypress-artifacts
+rm -rf ./data
 docker compose up -d
 ```
 
 ## Notes
 
 - `setup` runs `bench init --skip-redis-config-generation --frappe-branch version-16`.
+- `ALLOW_TESTS=1` enables Frappe test execution on the development site during setup.
+- `CYPRESS_FRAPPE_USER` / `CYPRESS_FRAPPE_PASSWORD` define a dedicated test user that setup
+  creates or updates, so Cypress does not depend on the current Administrator password.
 - Redis is external; local Redis lines are removed from the generated Procfile.
 - `web`, `socketio`, `watch`, `schedule`, and `worker` stay in the Procfile.
-- Cypress artifacts are written to `./cypress-artifacts`.
