@@ -56,6 +56,7 @@ services:
       ALLOW_TESTS: ${ALLOW_TESTS:-1}
       CYPRESS_FRAPPE_USER: ${CYPRESS_FRAPPE_USER:-cypress@example.local}
       CYPRESS_FRAPPE_PASSWORD: ${CYPRESS_FRAPPE_PASSWORD:-mpit_cypress_test}
+      DEVELOPER_MODE: ${DEVELOPER_MODE:-0}
       TZ: ${TZ:-Europe/Rome}
     volumes:
       - ${DATA_ROOT:-./data}/bench:/home/frappe/frappe-bench
@@ -92,7 +93,7 @@ services:
       - ${DATA_ROOT:-./data}/logs:/home/frappe/frappe-bench/logs
       - ${APP_PATH}:/workspace/master_plan_it
     working_dir: /home/frappe/frappe-bench
-    command: ["bench", "start"]
+    command: ["bench", "start", "--no-dev"]
     ports:
       - "${HTTP_PORT}:8000"
     restart: unless-stopped

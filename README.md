@@ -89,3 +89,29 @@ docker compose up -d
   creates or updates, so Cypress does not depend on the current Administrator password.
 - Redis is external; local Redis lines are removed from the generated Procfile.
 - `web`, `socketio`, `watch`, `schedule`, and `worker` stay in the Procfile.
+- Runtime uses `bench start --no-dev` so browsers connect to Socket.IO through
+  the public origin instead of the container-only port 9000.
+
+## Nginx Proxy Manager
+
+For an HTTPS proxy host, forward normal traffic to `frappe:8000`, enable WebSocket
+support, and add this Advanced configuration so Frappe realtime stays on the
+same public origin:
+
+```nginx
+location /socket.io/ {
+    proxy_pass http://frappe:9000/socket.io/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 120s;
+}
+```
+
+Keep `DEVELOPER_MODE=0` for the proxied site. Otherwise Frappe intentionally
+builds a browser URL with the internal Socket.IO port (`:9000`), which must not
+be exposed publicly.

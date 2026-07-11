@@ -13,6 +13,12 @@ for var_name in $required_vars; do
   fi
 done
 
+DEVELOPER_MODE="${DEVELOPER_MODE:-0}"
+if [ "$DEVELOPER_MODE" != "0" ] && [ "$DEVELOPER_MODE" != "1" ]; then
+  echo "DEVELOPER_MODE must be 0 or 1." >&2
+  exit 1
+fi
+
 wait_for_tcp() {
   host="$1"
   port="$2"
@@ -99,6 +105,7 @@ bench set-config -g redis_cache redis://redis:6379
 bench set-config -g redis_queue redis://redis:6379
 bench set-config -g redis_socketio redis://redis:6379
 bench set-config -gp socketio_port 9000
+bench set-config -gp live_reload "$DEVELOPER_MODE"
 
 printf "y\n" | bench setup procfile
 sed -i '/^redis_/d' Procfile
@@ -124,7 +131,7 @@ else
   fi
 fi
 
-bench --site "$SITE_NAME" set-config developer_mode 1
+bench --site "$SITE_NAME" set-config -p developer_mode "$DEVELOPER_MODE"
 if [ "${ALLOW_TESTS:-1}" = "1" ] || [ "${ALLOW_TESTS:-1}" = "true" ] || [ "${ALLOW_TESTS:-1}" = "True" ]; then
   bench --site "$SITE_NAME" set-config allow_tests true
 else
